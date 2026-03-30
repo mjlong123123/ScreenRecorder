@@ -35,7 +35,7 @@ android {
         }
     }
     ndkVersion '22.0.7026061'
-    namespace 'com.dragon.videorecorder.rtp'
+    namespace 'com.dragon.screenrecorder.rtp'
     lint {
         targetSdk 29
     }
