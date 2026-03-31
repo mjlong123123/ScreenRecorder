@@ -74,7 +74,6 @@ class ScanActivity : ComponentActivity() {
     }
     
     private fun onBarcodeScanned(ip: String) {
-        // 返回扫码结果给 MainActivity
         val resultIntent = Intent().apply {
             putExtra("ip", ip)
         }

@@ -11,23 +11,50 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Alignment.Companion.CenterHorizontally
+import androidx.compose.ui.Alignment.Companion.CenterVertically
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.*
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.Alignment.Companion.Center
+import kotlin.math.cos
+import kotlin.math.sin
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -35,7 +62,7 @@ import com.dragon.renderlib.background.RenderScope
 import com.dragon.renderlib.egl.EGLCore
 import com.dragon.renderlib.node.NodesRender
 import com.dragon.screenrecorder.ui.main.*
-import com.dragon.screenrecorder.ui.theme.VideoRecorderTheme
+import com.dragon.screenrecorder.ui.theme.*
 import com.dragon.screenrecorder.utils.ToastUtils
 import com.dragon.screenrecorder.viewmodel.MainViewModel
 
@@ -201,7 +228,10 @@ a=framerate:30"""
                 return
             }
             val rtpPort = viewModel.rtpPort.value
+            // 先更新状态为录制中
+            viewModel.setRecording(true)
             recorder.startVideoEncoder(deviceIps, rtpPort)
+            ToastUtils.showSuccess(this, "开始录制")
         }
     }
 
@@ -211,7 +241,7 @@ a=framerate:30"""
 }
 
 /**
- * MainScreen2 Composable - 主界面UI
+ * MainScreen2 Composable - 现代主界面UI
  */
 @Composable
 fun MainScreen2(
@@ -241,71 +271,79 @@ fun MainScreen2(
     onDeleteDevice: (String) -> Unit,
     onAboutClick: () -> Unit
 ) {
+    val context = LocalContext.current
+    val resources = context.resources
+    val gradientBrush = remember {
+        Brush.verticalGradient(
+            colors = listOf(GradientStart, GradientEnd),
+            startY = 0f,
+            endY = Float.POSITIVE_INFINITY
+        )
+    }
+    
+    // 浮动状态指示器动画
+    val animatedFloat by animateFloatAsState(
+        targetValue = if (isRecording) 1f else 0f,
+        animationSpec = tween(durationMillis = 300),
+        label = "recordingIndicator"
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(
+                brush = gradientBrush
+            )
     ) {
+        // 背景装饰元素
+        AnimatedBackground()
+
+        // 主要内容区域
         Column(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // 顶部区域 - 设置按钮
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 48.dp, end = 24.dp),
-                contentAlignment = Alignment.TopEnd
-            ) {
-                IconButton(
-                    onClick = onSettingsClick,
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.3f))
-                        .size(44.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = "设置",
-                        tint = Color.White.copy(alpha = 0.9f),
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-            }
+            // 顶部应用栏
+            TopAppBarSection(
+                onSettingsClick = onSettingsClick,
+                isRecording = isRecording
+            )
 
-            // 中间区域 - 状态显示
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-                modifier = Modifier.weight(1f)
-            ) {
-                if (deviceIps.isNotEmpty()) {
-                    StatusIndicator2(
-                        deviceIps = deviceIps,
-                        isRecording = isRecording,
-                        currentPort = rtpPort
-                    )
-                } else {
-                    Text(
-                        text = "点击设置添加目标设备",
-                        color = Color.White.copy(alpha = 0.5f),
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                }
-            }
-
-            // 底部区域 - 录制按钮
+            // 中央内容区域 - 调整布局使录制按钮更明显
             Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 64.dp),
+                modifier = Modifier.weight(1f),
                 contentAlignment = Alignment.Center
             ) {
-                RecordButton(
-                    isRecording = isRecording,
-                    onClick = onRecordClick
-                )
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+
+                    // 状态卡片
+                    StatusCard(
+                        deviceIps = deviceIps,
+                        isRecording = isRecording,
+                        rtpPort = rtpPort,
+                        animatedFloat = animatedFloat
+                    )
+
+                    // 底部状态栏
+                    BottomStatusBar(
+                        deviceIps = deviceIps,
+                        rtpPort = rtpPort,
+                        isRecording = isRecording
+                    )
+                    // 录制按钮区域 - 放在状态卡片前面，使其更靠近屏幕中央
+                    RecordButtonSection(
+                        isRecording = isRecording,
+                        onRecordClick = onRecordClick,
+                        enabled = deviceIps.isNotEmpty(),
+                        deviceCount = deviceIps.size
+                    )
+                }
             }
         }
 
@@ -420,66 +458,746 @@ private fun RecordButton(
     }
 }
 
+// ==================== 现代UI组件 ====================
+
 /**
- * 录制状态指示器 - 显示已连接的设备 IP
+ * 连接状态动画指示器
  */
 @Composable
-private fun StatusIndicator2(
+private fun ConnectionStatusIndicator(
+    isConnected: Boolean,
+    deviceCount: Int
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "connection status")
+    
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = if (isConnected && deviceCount > 0) 1.1f else 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse scale"
+    )
+    
+    val color by animateColorAsState(
+        targetValue = when {
+            !isConnected -> com.dragon.screenrecorder.ui.theme.StatusDisconnected
+            deviceCount == 0 -> com.dragon.screenrecorder.ui.theme.StatusWarning
+            else -> com.dragon.screenrecorder.ui.theme.StatusConnected
+        },
+        animationSpec = tween(300),
+        label = "status color"
+    )
+    
+    Row(
+        modifier = Modifier
+            .graphicsLayer {
+                scaleX = pulseScale
+                scaleY = pulseScale
+            },
+        verticalAlignment = CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Box(
+            modifier = Modifier.size(12.dp)
+        ) {
+            Canvas(
+                modifier = Modifier.fillMaxSize()
+            ) {
+                drawCircle(
+                    color = color,
+                    radius = size.minDimension / 2,
+                    center = center
+                )
+            }
+        }
+        
+        Text(
+            text = when {
+                !isConnected -> "未连接"
+                deviceCount == 0 -> "待添加设备"
+                else -> "已连接 ${deviceCount} 设备"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = TextSecondary
+        )
+    }
+}
+
+/**
+ * 交互反馈波纹效果
+ */
+@Composable
+private fun RippleFeedbackButton(
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    content: @Composable () -> Unit
+) {
+    var isPressed by remember { mutableStateOf(false) }
+    
+    Box(
+        modifier = Modifier
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = { offset ->
+                        if (enabled) {
+                            isPressed = true
+                            tryAwaitRelease()
+                            isPressed = false
+                        }
+                    },
+                    onTap = { if (enabled) onClick() }
+                )
+            }
+            .graphicsLayer {
+                scaleX = if (isPressed && enabled) 0.95f else 1f
+                scaleY = if (isPressed && enabled) 0.95f else 1f
+            }
+            .animateContentSize()
+    ) {
+        content()
+        
+        if (isPressed && enabled) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(
+                        color = com.dragon.screenrecorder.ui.theme.Primary.copy(alpha = 0.1f),
+                        shape = RoundedCornerShape(24.dp)
+                    )
+            )
+        }
+    }
+}
+
+/**
+ * 动画背景装饰
+ */
+@Composable
+private fun AnimatedBackground() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Primary.copy(alpha = 0.1f),
+                        Secondary.copy(alpha = 0.05f),
+                        Color.Transparent
+                    ),
+                    center = Offset.Unspecified,
+                    radius = 500f
+                )
+            )
+    )
+}
+
+/**
+ * 顶部应用栏
+ */
+@Composable
+private fun TopAppBarSection(
+    onSettingsClick: () -> Unit,
+    isRecording: Boolean
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 48.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = CenterVertically
+    ) {
+        // 应用标题
+        Text(
+            text = "ScreenRecorder",
+            style = MaterialTheme.typography.titleLarge.copy(
+                fontWeight = FontWeight.Bold,
+                color = White
+            ),
+            modifier = Modifier.alpha(0.9f)
+        )
+        
+        // 设置按钮
+        IconButton(
+            onClick = onSettingsClick,
+            modifier = Modifier
+                .size(48.dp)
+                .shadow(
+                    elevation = 8.dp,
+                    shape = CircleShape,
+                    clip = true
+                )
+                .background(
+                    color = SurfaceDark.copy(alpha = SurfaceAlpha),
+                    shape = CircleShape
+                )
+        ) {
+            Icon(
+                imageVector = Icons.Default.Settings,
+                contentDescription = "设置",
+                tint = White,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
+/**
+ * 状态卡片组件
+ */
+@Composable
+private fun StatusCard(
     deviceIps: List<String>,
     isRecording: Boolean,
-    modifier: Modifier = Modifier,
-    currentPort: Int = 40018
+    rtpPort: Int,
+    animatedFloat: Float
 ) {
-    Box(
-        modifier = modifier
-            .background(
-                color = Color.Black.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(16.dp)
-            )
-            .padding(horizontal = 16.dp, vertical = 12.dp)
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 80.dp, max = 150.dp)
+            .shadow(
+                elevation = 16.dp,
+                shape = RoundedCornerShape(24.dp),
+                spotColor = Primary.copy(alpha = 0.3f)
+            ),
+        colors = CardDefaults.cardColors(
+            containerColor = SurfaceDark.copy(alpha = SurfaceAlpha),
+            contentColor = White
+        ),
+        shape = RoundedCornerShape(24.dp)
     ) {
         Column(
-            horizontalAlignment = Alignment.CenterHorizontally
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // 录制状态图标和文字
+            // 状态指示器行
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                verticalAlignment = CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // 信号图标（使用圆点代替）
+                // 状态指示器图标
                 Box(
                     modifier = Modifier
-                        .size(8.dp)
+                        .size(40.dp)
                         .clip(CircleShape)
                         .background(
-                            if (isRecording) Color(0xFF34C759) else Color(0xFF0A84FF)
+                            brush = if (isRecording) {
+                                Brush.verticalGradient(
+                                    colors = listOf(RecordingPulse, RecordingActive)
+                                )
+                            } else {
+                                Brush.verticalGradient(
+                                    colors = listOf(Primary, Secondary)
+                                )
+                            }
                         )
+                        .border(
+                            width = 2.dp,
+                            color = if (isRecording) RecordingActive else StatusConnected,
+                            shape = CircleShape
+                        ),
+                    contentAlignment = Center
+                ) {
+                Icon(
+                    imageVector = if (isRecording) Icons.Default.Videocam else Icons.Default.Wifi,
+                    contentDescription = "状态",
+                    tint = White,
+                    modifier = Modifier.size(20.dp)
                 )
-
-                Text(
-                    text = if (isRecording) "录制中" else "已连接",
-                    color = Color.White.copy(alpha = 0.9f),
-                    style = MaterialTheme.typography.bodyMedium
-                )
+                }
+                
+                // 状态文本
+                Column {
+                    Text(
+                        text = if (isRecording) "录制进行中" else "准备就绪",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold
+                        ),
+                        color = White
+                    )
+                    
+                    Text(
+                        text = if (isRecording) "正在向 ${deviceIps.size} 个设备传输视频" else "点击下方按钮开始录制",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                }
             }
+            
+            // 设备列表
+            if (deviceIps.isNotEmpty()) {
+                Divider(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Outline.copy(alpha = 0.5f),
+                    thickness = 1.dp
+                )
+                
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    deviceIps.take(3).forEachIndexed { index, ip ->
+                        Row(
+                            verticalAlignment = CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Computer,
+                                contentDescription = "设备",
+                                tint = Secondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            
+                            Text(
+                                text = "$ip:$rtpPort",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                    
+                    if (deviceIps.size > 3) {
+                        Text(
+                            text = "+ ${deviceIps.size - 3} 个设备",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextTertiary,
+                            modifier = Modifier.padding(start = 24.dp)
+                        )
+                    }
+                }
+            } else {
+                // 空状态
+                Column(
+                    horizontalAlignment = CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.DevicesOther,
+                        contentDescription = "无设备",
+                        tint = TextTertiary,
+                        modifier = Modifier.size(32.dp)
+                    )
+                    
+                    Text(
+                        text = "未添加目标设备",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextTertiary
+                    )
+                }
+            }
+        }
+    }
+}
 
-            // 显示 IP:Port 列表（最多显示 3 个）
-            Spacer(modifier = Modifier.height(8.dp))
-            deviceIps.take(3).forEachIndexed { index, ip ->
+/**
+ * 录制按钮区域
+ */
+@Composable
+private fun RecordButtonSection(
+    isRecording: Boolean,
+    onRecordClick: () -> Unit,
+    enabled: Boolean,
+    deviceCount: Int
+) {
+    Column(
+        horizontalAlignment = CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // 连接状态指示器
+        ConnectionStatusIndicator(
+            isConnected = enabled,
+            deviceCount = deviceCount
+        )
+        
+        // 录制按钮（带交互反馈）
+        RippleFeedbackButton(
+            onClick = onRecordClick,
+            enabled = enabled
+        ) {
+            ModernRecordButton(
+                isRecording = isRecording,
+                enabled = enabled
+            )
+        }
+        
+        // 按钮提示文本
+        AnimatedContent(
+            targetState = Pair(enabled, isRecording),
+            transitionSpec = {
+                if (targetState.first != initialState.first) {
+                    // 状态变化时使用淡入淡出
+                    fadeIn(animationSpec = tween(200)) togetherWith fadeOut(animationSpec = tween(200))
+                } else {
+                    // 同一状态内变化时使用滑动
+                    slideIntoContainer(
+                        towards = AnimatedContentTransitionScope.SlideDirection.Up,
+                        animationSpec = tween(200)
+                    ) togetherWith slideOutOfContainer(
+                        towards = AnimatedContentTransitionScope.SlideDirection.Down,
+                        animationSpec = tween(200)
+                    )
+                }
+            },
+            label = "button hint animation"
+        ) { (currentEnabled, currentRecording) ->
+            Text(
+                text = if (currentEnabled) {
+                    if (currentRecording) "点击停止录制" else "点击开始录制"
+                } else {
+                    "请先添加目标设备"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (currentEnabled) TextSecondary else com.dragon.screenrecorder.ui.theme.Warning,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+/**
+ * 底部状态栏
+ */
+@Composable
+private fun BottomStatusBar(
+    deviceIps: List<String>,
+    rtpPort: Int,
+    isRecording: Boolean
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 16.dp)
+            .shadow(
+                elevation = 8.dp,
+                shape = RoundedCornerShape(16.dp)
+            ),
+        color = SurfaceDark.copy(alpha = SurfaceAlpha),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = CenterVertically
+        ) {
+            // 设备数量
+            Row(
+                verticalAlignment = CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.DevicesOther,
+                    contentDescription = "设备数量",
+                    tint = if (deviceIps.isEmpty()) Warning else Secondary,
+                    modifier = Modifier.size(16.dp)
+                )
+                
                 Text(
-                    text = "• $ip:$currentPort",
-                    color = Color.White.copy(alpha = 0.7f),
+                    text = "${deviceIps.size} 个设备",
                     style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(vertical = 2.dp)
+                    color = if (deviceIps.isEmpty()) Warning else TextSecondary
                 )
             }
-
-            // 如果超过 3 个，显示省略号
-            if (deviceIps.size > 3) {
+            
+            // 端口信息
+            Row(
+                verticalAlignment = CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.SettingsEthernet,
+                    contentDescription = "端口",
+                    tint = Primary,
+                    modifier = Modifier.size(16.dp)
+                )
+                
                 Text(
-                    text = "+ ${deviceIps.size - 3} 更多",
-                    color = Color.White.copy(alpha = 0.5f),
-                    style = MaterialTheme.typography.bodySmall
+                    text = "端口: $rtpPort",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+            }
+            
+            // 录制状态指示器
+            Row(
+                verticalAlignment = CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                AnimatedVisibility(
+                    visible = isRecording,
+                    enter = scaleIn() + fadeIn(),
+                    exit = scaleOut() + fadeOut()
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .clip(CircleShape)
+                            .background(
+                                color = RecordingActive
+                            )
+                    )
+                }
+                
+                Text(
+                    text = if (isRecording) "录制中" else "空闲",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isRecording) RecordingActive else TextSecondary
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 浮动操作按钮组
+ */
+@Composable
+private fun FloatingActionGroup(
+    onAddDevice: () -> Unit,
+    onSetPort: () -> Unit,
+    onGenerateSdp: () -> Unit,
+    onAboutClick: () -> Unit,
+    enabled: Boolean
+) {
+    var expanded by remember { mutableStateOf(false) }
+    
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(end = 24.dp, bottom = 24.dp),
+        contentAlignment = Alignment.BottomEnd
+    ) {
+        // 主要FAB
+        FloatingActionButton(
+            onClick = { expanded = !expanded },
+            containerColor = Primary,
+            contentColor = White,
+            modifier = Modifier.size(56.dp)
+        ) {
+            Icon(
+                imageVector = if (expanded) Icons.Default.Close else Icons.Default.Add,
+                contentDescription = if (expanded) "收起菜单" else "展开菜单",
+                modifier = Modifier.size(24.dp)
+            )
+        }
+        
+        // 展开的菜单项
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
+            exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom)
+        ) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalAlignment = Alignment.End,
+                modifier = Modifier.padding(bottom = 72.dp)
+            ) {
+                // 添加设备按钮
+                FloatingActionButton(
+                    onClick = {
+                        if (enabled) onAddDevice()
+                        expanded = false
+                    },
+                    containerColor = if (enabled) Secondary else SurfaceVariant,
+                    contentColor = White,
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "添加设备",
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                
+                // 设置端口按钮
+                FloatingActionButton(
+                    onClick = {
+                        if (enabled) onSetPort()
+                        expanded = false
+                    },
+                    containerColor = if (enabled) SurfaceVariant else SurfaceVariant.copy(alpha = 0.5f),
+                    contentColor = White,
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "设置端口",
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                
+                // 生成SDP按钮
+                FloatingActionButton(
+                    onClick = {
+                        if (enabled) onGenerateSdp()
+                        expanded = false
+                    },
+                    containerColor = if (enabled) SurfaceVariant else SurfaceVariant.copy(alpha = 0.5f),
+                    contentColor = White,
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.SdStorage,
+                        contentDescription = "生成SDP",
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                
+                // 关于按钮
+                FloatingActionButton(
+                    onClick = {
+                        onAboutClick()
+                        expanded = false
+                    },
+                    containerColor = SurfaceVariant,
+                    contentColor = White,
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = "关于",
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 现代录制按钮
+ */
+@Composable
+private fun ModernRecordButton(
+    isRecording: Boolean,
+    enabled: Boolean
+) {
+    // 录制状态脉冲动画
+    val infiniteTransition = rememberInfiniteTransition(label = "recording pulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = if (isRecording) 1.2f else 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse scale"
+    )
+
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.15f,
+        targetValue = if (isRecording) 0.6f else 0.15f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse alpha"
+    )
+
+    // 多层波纹动画
+    val pulseScale2 by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = if (isRecording) 1.35f else 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse scale 2"
+    )
+
+    val pulseAlpha2 by infiniteTransition.animateFloat(
+        initialValue = 0.08f,
+        targetValue = if (isRecording) 0.35f else 0.08f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse alpha 2"
+    )
+
+    Box(
+        modifier = Modifier
+            .size(80.dp)
+            .graphicsLayer {
+                scaleX = if (isRecording) pulseScale else 1f
+                scaleY = if (isRecording) pulseScale else 1f
+            }
+            .shadow(
+                elevation = 16.dp,
+                shape = CircleShape,
+                ambientColor = Color(0xFFFF3B30).copy(alpha = 0.3f),
+                spotColor = Color(0xFFFF3B30).copy(alpha = 0.5f)
+            ),
+        contentAlignment = Center
+    ) {
+        // 第二层波纹 - 录制中时显示
+        if (isRecording) {
+            Box(
+                modifier = Modifier
+                    .size(110.dp)
+                    .graphicsLayer {
+                        alpha = pulseAlpha2
+                        scaleX = pulseScale2
+                        scaleY = pulseScale2
+                    }
+                    .background(
+                        color = Color(0xFFFF3B30).copy(alpha = pulseAlpha2),
+                        shape = CircleShape
+                    )
+            )
+        }
+
+        // 第一层波纹 - 录制中时显示
+        if (isRecording) {
+            Box(
+                modifier = Modifier
+                    .size(95.dp)
+                    .graphicsLayer {
+                        alpha = pulseAlpha
+                        scaleX = pulseScale
+                        scaleY = pulseScale
+                    }
+                    .background(
+                        color = Color(0xFFFF3B30).copy(alpha = pulseAlpha),
+                        shape = CircleShape
+                    )
+            )
+        }
+
+        // 外圈 - 红色
+        Box(
+            modifier = Modifier
+                .size(80.dp)
+                .background(
+                    color = Color(0xFFFF3B30),
+                    shape = CircleShape
+                ),
+            contentAlignment = Center
+        ) {
+            // 内圈 - 浅红色/粉色
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .background(
+                        color = Color(0xFFFFCDD2),
+                        shape = CircleShape
+                    ),
+                contentAlignment = Center
+            ) {
+                // 中心图标
+                Icon(
+                    imageVector = if (isRecording) Icons.Default.Stop else Icons.Default.FiberManualRecord,
+                    contentDescription = if (isRecording) "停止" else "开始",
+                    tint = Color(0xFFFF3B30),
+                    modifier = Modifier.size(28.dp)
                 )
             }
         }

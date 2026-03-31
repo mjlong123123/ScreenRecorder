@@ -158,7 +158,7 @@ class ScreenCaptureService : Service() {
         val pendingIntent = PendingIntent.getActivity(
             this,
             0,
-            Intent(this, MainActivity::class.java),
+            Intent(this, MainActivity2::class.java),
             PendingIntent.FLAG_IMMUTABLE
         )
 
