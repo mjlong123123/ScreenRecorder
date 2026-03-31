@@ -38,6 +38,8 @@ class ScreenCaptureService : Service() {
 
         var mediaProjection: MediaProjection? = null
             private set
+        var isRunning = false
+            private set
     }
 
     private val binder = LocalBinder()
@@ -73,6 +75,7 @@ class ScreenCaptureService : Service() {
                 val data = intent.getParcelableExtra<Intent>(EXTRA_DATA)
                 if (resultCode == RESULT_OK && data != null) {
                     startService(resultCode, data)
+                    isRunning = true
                 } else {
                     Log.e(TAG, "Invalid resultCode or data")
                     stopSelf()
@@ -80,6 +83,7 @@ class ScreenCaptureService : Service() {
             }
             ACTION_STOP -> {
                 stopCapture()
+                isRunning = false
                 stopSelf()
             }
         }
@@ -139,6 +143,7 @@ class ScreenCaptureService : Service() {
         surface = null
         mediaProjection?.stop()
         mediaProjection = null
+        isRunning = false
     }
 
     private fun createNotificationChannel() {
@@ -174,6 +179,7 @@ class ScreenCaptureService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         stopCapture()
+        isRunning = false
         Log.d(TAG, "Service destroyed")
     }
 }

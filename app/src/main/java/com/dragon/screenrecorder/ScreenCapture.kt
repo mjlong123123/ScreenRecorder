@@ -23,12 +23,16 @@ import androidx.annotation.RequiresApi
 @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
 class ScreenCapture(
     private val context: Context,
-    private val launcher: ActivityResultLauncher<Intent>,
+    launcher: ActivityResultLauncher<Intent>,
     private val surfaceReady: (Surface) -> Unit
 ) {
     companion object {
         private const val TAG = "ScreenCapture"
     }
+
+    // 使用可变的 launcher 引用，支持 Activity 重建时更新
+    private var _launcher: ActivityResultLauncher<Intent>? = launcher
+    private var isLauncherValid: Boolean = true
 
     private var mediaProjectionManager: MediaProjectionManager =
         context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
@@ -65,7 +69,11 @@ class ScreenCapture(
      */
     fun requestPermission() {
         val intent = mediaProjectionManager.createScreenCaptureIntent()
-        launcher.launch(intent)
+        if (_launcher != null && isLauncherValid) {
+            _launcher!!.launch(intent)
+        } else {
+            Log.e(TAG, "Launcher is null or invalid, cannot request permission")
+        }
     }
 
     /**
@@ -154,9 +162,13 @@ class ScreenCapture(
             return
         }
 
-        // 解绑服务
+        // 解绑服务（捕获异常防止服务未注册时崩溃）
         if (serviceBound) {
-            context.unbindService(serviceConnection)
+            try {
+                context.unbindService(serviceConnection)
+            } catch (e: IllegalArgumentException) {
+                Log.w(TAG, "Service was not registered or already unbound")
+            }
             serviceBound = false
         }
 
@@ -169,6 +181,15 @@ class ScreenCapture(
         captureService = null
         isStarted = false
         Log.d(TAG, "Screen capture stopped")
+    }
+
+    /**
+     * 更新启动器（用于 Activity 重建时重新连接）
+     */
+    fun updateLauncher(launcher: ActivityResultLauncher<Intent>) {
+        _launcher = launcher
+        isLauncherValid = true
+        Log.d(TAG, "Launcher updated for Activity reconnection")
     }
 
     /**

@@ -58,38 +58,28 @@ import kotlin.math.sin
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import com.dragon.renderlib.background.RenderScope
-import com.dragon.renderlib.egl.EGLCore
-import com.dragon.renderlib.node.NodesRender
 import com.dragon.screenrecorder.ui.main.*
 import com.dragon.screenrecorder.ui.theme.*
 import com.dragon.screenrecorder.utils.ToastUtils
 import com.dragon.screenrecorder.viewmodel.MainViewModel
 
 /**
- * 新的主Activity - 使用Compose UI和MVVM架构
+ * 主Activity - 使用Compose UI和MVVM架构
  */
 class MainActivity2 : ComponentActivity() {
-    private val targetWidth = 720
-    private val targetHeight = 1280
-    private lateinit var screenCapture: ScreenCapture
     private val viewModel: MainViewModel by viewModels()
 
-    private val recorder = VideoRecorder(targetWidth, targetHeight, { surface ->
-        screenCapture.createVirtualDisplay(targetWidth, targetHeight, surface)
-        screenCapture.requestPermission()
-    }, { surface ->
-        screenCapture.stopScreenCapture()
-        surface.release()
-    })
-
+    // 屏幕录制权限启动器
     private val screenCaptureLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == RESULT_OK && result.data != null) {
-            screenCapture.startScreenCapture(result.resultCode,result.data,targetWidth,targetWidth)
+            if (!RecordingManager.handlePermissionResult(result.resultCode, result.data)) {
+                RecordingManager.stopRecording()
+                ToastUtils.showError(this, "屏幕录制启动失败")
+            }
         } else {
-            recorder.stopVideoEncoder()
+            RecordingManager.stopRecording()
             ToastUtils.showError(this, "屏幕录制权限被拒绝")
         }
     }
@@ -98,36 +88,32 @@ class MainActivity2 : ComponentActivity() {
     private val saveSdpLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/sdp")
     ) { uri ->
-        uri?.let {
-            try {
-                val port = viewModel.rtpPort.value
-                val sdpContent = """m=video $port RTP/AVP 96
-a=rtpmap:96 H264
-a=framerate:30"""
-
-                contentResolver.openOutputStream(it)?.use { outputStream ->
-                    outputStream.write(sdpContent.toByteArray())
-                }
-                ToastUtils.showSuccess(this, "SDP 文件已保存：mobile_${port}.sdp")
-            } catch (e: Exception) {
-                ToastUtils.showError(this, "保存 SDP 文件失败：${e.message}")
-            }
-        }
+        uri?.let { saveSdpFile(it) }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 启用全面屏，设置为透明状态栏
+        setupWindow()
+        loadSavedData()
+        initializeRecordingManager()
+        setContent { MainScreen() }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // 不停止录制,让录制在后台继续运行
+        // RecordingManager 不随 Activity 销毁而销毁
+    }
+
+    /**
+     * 设置窗口属性
+     */
+    private fun setupWindow() {
         enableEdgeToEdge()
-
-        // 保持屏幕常亮
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-
-        // 不适配系统窗口边距，让内容延伸到全屏
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
-        // 隐藏状态栏和导航栏，并允许用户滑动拉出
         val windowInsetsController = WindowInsetsControllerCompat(
             window,
             window.decorView
@@ -135,108 +121,137 @@ a=framerate:30"""
         windowInsetsController.hide(
             WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.navigationBars()
         )
-        windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        windowInsetsController.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+    }
 
-        // 加载已保存的设备 IP 和当前 IP
+    /**
+     * 加载已保存的数据
+     */
+    private fun loadSavedData() {
         viewModel.loadIpAddress(this)
         viewModel.loadDevices(this)
         viewModel.loadRtpPort(this)
-
-        // 初始化屏幕捕获
-        screenCapture = ScreenCapture(this, screenCaptureLauncher) { surface ->
-        }
-
-        setContent {
-            VideoRecorderTheme {
-                val context = LocalContext.current
-                val isRecording by viewModel.isRecording.collectAsState()
-                val deviceIps by viewModel.deviceIps.collectAsState()
-                val showDeviceMenu by viewModel.showDeviceMenu.collectAsState()
-                val showIpDialog by viewModel.showIpDialog.collectAsState()
-                val showPortDialog by viewModel.showPortDialog.collectAsState()
-                val showSdpDialog by viewModel.showSdpDialog.collectAsState()
-                val showAboutDialog by viewModel.showAboutDialog.collectAsState()
-                val rtpPort by viewModel.rtpPort.collectAsState()
-
-                MainScreen2(
-                    isRecording = isRecording,
-                    deviceIps = deviceIps,
-                    rtpPort = rtpPort,
-                    onSettingsClick = { viewModel.toggleDeviceMenu(true) },
-                    onRecordClick = { handleRecordClick() },
-                    showDeviceMenu = showDeviceMenu,
-                    showIpDialog = showIpDialog,
-                    showPortDialog = showPortDialog,
-                    showSdpDialog = showSdpDialog,
-                    showAboutDialog = showAboutDialog,
-                    onDismissDeviceMenu = { viewModel.toggleDeviceMenu(false) },
-                    onDismissIpDialog = { viewModel.showIpDialog(false) },
-                    onConfirmIpDialog = { ip ->
-                        viewModel.addDevice(ip, this)
-                        viewModel.showIpDialog(false)
-                    },
-                    onDismissPortDialog = { viewModel.showPortDialog(false) },
-                    onConfirmPortDialog = { port ->
-                        if (viewModel.updateRtpPort(port, this)) {
-                            viewModel.showPortDialog(false)
-                        }
-                    },
-                    onDismissSdpDialog = { viewModel.showSdpDialog(false) },
-                    onConfirmSdpDialog = {
-                        viewModel.showSdpDialog(false)
-                        saveSdpLauncher.launch("mobile_${rtpPort}.sdp")
-                    },
-                    onDismissAboutDialog = { viewModel.showAboutDialog(false) },
-                    onScanDevice = { /* TODO: implement scan */ },
-                    onAddDevice = { viewModel.showIpDialog(true) },
-                    onSetPort = { viewModel.showPortDialog(true) },
-                    onGenerateSdp = { viewModel.showSdpDialog(true) },
-                    onDeviceClick = { ip ->
-                        viewModel.selectDevice(ip, this)
-                        viewModel.toggleDeviceMenu(false)
-                    },
-                    onDeleteDevice = { ip ->
-                        viewModel.removeDevice(ip, this)
-                    },
-                    onAboutClick = {
-                        viewModel.toggleDeviceMenu(false)
-                        viewModel.showAboutDialog(true)
-                    }
-                )
-            }
-        }
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        screenCapture.release()
-        recorder.stopVideoEncoder()
+    /**
+     * 初始化录制管理器
+     */
+    private fun initializeRecordingManager() {
+        RecordingManager.initialize(this, screenCaptureLauncher, viewModel)
     }
 
     /**
      * 处理录制按钮点击
      */
     private fun handleRecordClick() {
-        if (recorder.isStarted) {
-            recorder.stopVideoEncoder()
-            viewModel.setRecording(false)
+        if (RecordingManager.isStarted) {
+            RecordingManager.stopRecording()
             ToastUtils.showSuccess(this, "已停止录制")
         } else {
-            val deviceIps = viewModel.getSelectedIps()
-            if (deviceIps.isEmpty()) {
-                ToastUtils.showError(this, "请先添加目的设备 IP 地址")
-                return
-            }
-            val rtpPort = viewModel.rtpPort.value
-            // 先更新状态为录制中
-            viewModel.setRecording(true)
-            recorder.startVideoEncoder(deviceIps, rtpPort)
-            ToastUtils.showSuccess(this, "开始录制")
+            startRecording()
         }
     }
 
-    companion object {
-        private const val TAG = "MainActivity2"
+    /**
+     * 开始录制
+     */
+    private fun startRecording() {
+        val deviceIps = viewModel.getSelectedIps()
+        if (deviceIps.isEmpty()) {
+            ToastUtils.showError(this, "请先添加目的设备 IP 地址")
+            return
+        }
+
+        val rtpPort = viewModel.rtpPort.value
+        if (RecordingManager.startRecording(deviceIps, rtpPort)) {
+            ToastUtils.showSuccess(this, "开始录制")
+        } else {
+            ToastUtils.showError(this, "启动录制失败")
+        }
+    }
+
+    /**
+     * 保存 SDP 文件
+     */
+    private fun saveSdpFile(uri: android.net.Uri) {
+        try {
+            val port = viewModel.rtpPort.value
+            val sdpContent = """m=video $port RTP/AVP 96
+a=rtpmap:96 H264
+a=framerate:30"""
+
+            contentResolver.openOutputStream(uri)?.use { outputStream ->
+                outputStream.write(sdpContent.toByteArray())
+            }
+            ToastUtils.showSuccess(this, "SDP 文件已保存：mobile_$port.sdp")
+        } catch (e: Exception) {
+            ToastUtils.showError(this, "保存 SDP 文件失败：${e.message}")
+        }
+    }
+
+    /**
+     * 主界面 Composable
+     */
+    @Composable
+    private fun MainScreen() {
+        VideoRecorderTheme {
+            val context = LocalContext.current
+            val isRecording by viewModel.isRecording.collectAsState()
+            val deviceIps by viewModel.deviceIps.collectAsState()
+            val showDeviceMenu by viewModel.showDeviceMenu.collectAsState()
+            val showIpDialog by viewModel.showIpDialog.collectAsState()
+            val showPortDialog by viewModel.showPortDialog.collectAsState()
+            val showSdpDialog by viewModel.showSdpDialog.collectAsState()
+            val showAboutDialog by viewModel.showAboutDialog.collectAsState()
+            val rtpPort by viewModel.rtpPort.collectAsState()
+
+            MainScreen2(
+                isRecording = isRecording,
+                deviceIps = deviceIps,
+                rtpPort = rtpPort,
+                onSettingsClick = { viewModel.toggleDeviceMenu(true) },
+                onRecordClick = { handleRecordClick() },
+                showDeviceMenu = showDeviceMenu,
+                showIpDialog = showIpDialog,
+                showPortDialog = showPortDialog,
+                showSdpDialog = showSdpDialog,
+                showAboutDialog = showAboutDialog,
+                onDismissDeviceMenu = { viewModel.toggleDeviceMenu(false) },
+                onDismissIpDialog = { viewModel.showIpDialog(false) },
+                onConfirmIpDialog = { ip ->
+                    viewModel.addDevice(ip, this@MainActivity2)
+                    viewModel.showIpDialog(false)
+                },
+                onDismissPortDialog = { viewModel.showPortDialog(false) },
+                onConfirmPortDialog = { port ->
+                    if (viewModel.updateRtpPort(port, this@MainActivity2)) {
+                        viewModel.showPortDialog(false)
+                    }
+                },
+                onDismissSdpDialog = { viewModel.showSdpDialog(false) },
+                onConfirmSdpDialog = {
+                    viewModel.showSdpDialog(false)
+                    saveSdpLauncher.launch("mobile_$rtpPort.sdp")
+                },
+                onDismissAboutDialog = { viewModel.showAboutDialog(false) },
+                onScanDevice = { /* TODO: implement scan */ },
+                onAddDevice = { viewModel.showIpDialog(true) },
+                onSetPort = { viewModel.showPortDialog(true) },
+                onGenerateSdp = { viewModel.showSdpDialog(true) },
+                onDeviceClick = { ip ->
+                    viewModel.selectDevice(ip, this@MainActivity2)
+                    viewModel.toggleDeviceMenu(false)
+                },
+                onDeleteDevice = { ip ->
+                    viewModel.removeDevice(ip, this@MainActivity2)
+                },
+                onAboutClick = {
+                    viewModel.toggleDeviceMenu(false)
+                    viewModel.showAboutDialog(true)
+                }
+            )
+        }
     }
 }
 
