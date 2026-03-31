@@ -36,6 +36,7 @@ import com.dragon.screenrecorder.ui.theme.RecorderButtonRecording
 fun MainScreen(
     onSettingsClick: () -> Unit,
     onRecordClick: () -> Unit,
+    onShareScreenClick: () -> Unit,
     onSetPort: () -> Unit,
     onIpChanged: (String) -> Unit,
     isRecording: Boolean = false,
@@ -67,7 +68,7 @@ fun MainScreen(
             modifier = Modifier.fillMaxSize()
         ) {
             // SurfaceView 引用
-            val (surfaceView, settingsButton, recordButton, statusIndicator) = createRefs()
+            val (surfaceView, settingsButton, shareScreenButton, recordButton, statusIndicator) = createRefs()
 
             // SurfaceView - 使用 AndroidView 包装
             AndroidView(
@@ -137,6 +138,27 @@ fun MainScreen(
                         start.linkTo(parent.start)
                         end.linkTo(parent.end)
                     }
+                )
+            }
+
+            // 分享屏幕按钮 - 在录制按钮左侧
+            IconButton(
+                onClick = onShareScreenClick,
+                enabled = !isRecording,
+                modifier = Modifier
+                    .constrainAs(shareScreenButton) {
+                        bottom.linkTo(surfaceView.bottom, margin = 48.dp)
+                        end.linkTo(recordButton.start, margin = 24.dp)
+                    }
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = if (!isRecording) 0.8f else 0.3f))
+                    .size(56.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = "分享屏幕",
+                    tint = Color.White.copy(alpha = if (!isRecording) 1f else 0.4f),
+                    modifier = Modifier.size(28.dp)
                 )
             }
 
