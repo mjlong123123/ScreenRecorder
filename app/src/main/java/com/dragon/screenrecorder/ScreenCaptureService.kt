@@ -161,11 +161,30 @@ class ScreenCaptureService : Service() {
         currentPort = port
         isRecording = true
 
-        // 创建 VideoRecorder
-        videoRecorder = VideoRecorder(720, 1280,
+        // 目标分辨率
+        val targetWidth = 720
+        val targetHeight = 1280
+
+        // 获取屏幕实际分辨率
+        val windowManager = getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
+        val displayMetrics = android.util.DisplayMetrics()
+        windowManager.defaultDisplay.getRealMetrics(displayMetrics)
+        val screenWidth = displayMetrics.widthPixels
+        val screenHeight = displayMetrics.heightPixels
+
+        // 计算屏幕和目标的宽高比
+        val screenAspectRatio = screenWidth.toFloat() / screenHeight.toFloat()
+        val targetAspectRatio = targetWidth.toFloat() / targetHeight.toFloat()
+
+        Log.d(TAG, "Screen resolution: ${screenWidth}x${screenHeight}, aspect ratio: $screenAspectRatio")
+        Log.d(TAG, "Target resolution: ${targetWidth}x${targetHeight}, aspect ratio: $targetAspectRatio")
+
+        // 创建 VideoRecorder（使用目标分辨率）
+        videoRecorder = VideoRecorder(targetWidth, targetHeight,
             createSurface = { surface ->
-                // 当 VideoRecorder 创建 Surface 时，创建 VirtualDisplay
-                screenCapture?.createVirtualDisplay(720, 1280, surface)
+                // 当 VideoRecorder 创建 Surface 时，创建 VirtualDisplay（使用目标尺寸）
+                // 系统会自动处理缩放和居中，实现 fit center 效果
+                screenCapture?.createVirtualDisplay(targetWidth, targetHeight, surface)
             },
             destroySurface = { surface ->
                 // Surface 销毁时的处理

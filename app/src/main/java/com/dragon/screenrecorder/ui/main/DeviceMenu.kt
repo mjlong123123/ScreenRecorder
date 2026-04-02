@@ -9,6 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.tooling.preview.Preview
@@ -55,12 +56,12 @@ fun DeviceMenu(
     ) {
         Card(
             modifier = Modifier
-                .widthIn(max = 260.dp)
-                .background(Color.Black.copy(alpha = 0.7f)),
+                .widthIn(max = 280.dp)
+                .shadow(elevation = 12.dp, shape = MaterialTheme.shapes.large),
             colors = CardDefaults.cardColors(
-                containerColor = Color.Transparent
+                containerColor = Color(0xFF2A2A2A).copy(alpha = 0.95f) // 更不透明的深色背景
             ),
-            elevation = CardDefaults.cardElevation(8.dp)
+            elevation = CardDefaults.cardElevation(12.dp)
         ) {
             Column(
                 modifier = Modifier.padding(vertical = 12.dp)
@@ -76,7 +77,7 @@ fun DeviceMenu(
                 
                 HorizontalDivider(
                     modifier = Modifier.padding(vertical = 8.dp),
-                    color = Color.White.copy(alpha = 0.2f)
+                    color = Color.White.copy(alpha = 0.1f) // 更微妙的分隔线
                 )
                 
                 // 扫码添加设备
@@ -119,7 +120,7 @@ fun DeviceMenu(
                 if (deviceIps.isNotEmpty()) {
                     HorizontalDivider(
                         modifier = Modifier.padding(vertical = 12.dp),
-                        color = Color.White.copy(alpha = 0.2f)
+                        color = Color.White.copy(alpha = 0.1f) // 更微妙的分隔线
                     )
                     
                     // 已添加的设备列表
@@ -155,7 +156,7 @@ private fun MenuItem(
         Text(
             text = text,
             style = MaterialTheme.typography.bodyLarge,
-            color = Color.White.copy(alpha = 0.9f)
+            color = Color.White.copy(alpha = 0.95f) // 更亮的文本
         )
     }
 }
@@ -177,7 +178,7 @@ private fun DeviceItem(
         Text(
             text = ip,
             style = MaterialTheme.typography.bodyLarge,
-            color = Color.White.copy(alpha = 0.9f),
+            color = Color.White.copy(alpha = 0.95f), // 更亮的文本
             modifier = Modifier.weight(1f)
         )
         
@@ -188,7 +189,7 @@ private fun DeviceItem(
             Icon(
                 imageVector = Icons.Default.Delete,
                 contentDescription = "删除",
-                tint = Color.White.copy(alpha = 0.6f),
+                tint = Color(0xFFE57373), // 更明显的红色
                 modifier = Modifier.size(20.dp)
             )
         }

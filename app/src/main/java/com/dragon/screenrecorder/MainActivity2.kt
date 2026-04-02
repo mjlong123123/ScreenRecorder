@@ -310,7 +310,52 @@ fun MainScreen2(
             )
     ) {
         // 背景装饰元素
-        AnimatedBackground()
+        // 简化背景，使用更现代简约的设计
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFF121212), // 深灰色背景
+                            Color(0xFF1E1E1E)  // 稍浅的深灰色
+                        )
+                    )
+                )
+        )
+        
+        // 添加一个微妙的网格纹理，增强现代感
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .drawWithContent {
+                    drawContent()
+                    // 绘制微妙的网格纹理
+                    val gridSize = 40.dp.toPx()
+                    val strokeWidth = 1.dp.toPx()
+                    val gridColor = Color.White.copy(alpha = 0.03f)
+                    
+                    // 绘制垂直线
+                    for (x in 0 until size.width.toInt() step gridSize.toInt()) {
+                        drawLine(
+                            color = gridColor,
+                            start = Offset(x.toFloat(), 0f),
+                            end = Offset(x.toFloat(), size.height),
+                            strokeWidth = strokeWidth
+                        )
+                    }
+                    
+                    // 绘制水平线
+                    for (y in 0 until size.height.toInt() step gridSize.toInt()) {
+                        drawLine(
+                            color = gridColor,
+                            start = Offset(0f, y.toFloat()),
+                            end = Offset(size.width, y.toFloat()),
+                            strokeWidth = strokeWidth
+                        )
+                    }
+                }
+        )
 
         // 主要内容区域
         Column(
