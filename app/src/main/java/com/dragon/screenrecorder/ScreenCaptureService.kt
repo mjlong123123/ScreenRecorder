@@ -33,6 +33,7 @@ class ScreenCaptureService : Service() {
 
         const val ACTION_START = "ACTION_START"
         const val ACTION_STOP = "ACTION_STOP"
+        const val ACTION_REQUEST_PERMISSION = "ACTION_REQUEST_PERMISSION"
         const val EXTRA_RESULT_CODE = "EXTRA_RESULT_CODE"
         const val EXTRA_DATA = "EXTRA_DATA"
 
@@ -45,6 +46,11 @@ class ScreenCaptureService : Service() {
     private val binder = LocalBinder()
     private var virtualDisplay: VirtualDisplay? = null
     private var surface: Surface? = null
+    private var screenCapture: ScreenCapture? = null
+    private var videoRecorder: VideoRecorder? = null
+    private var currentIps: List<String> = emptyList()
+    private var currentPort: Int = 0
+    private var isRecording: Boolean = false
 
     inner class LocalBinder : Binder() {
         fun getService(): ScreenCaptureService = this@ScreenCaptureService
@@ -54,8 +60,14 @@ class ScreenCaptureService : Service() {
         super.onCreate()
         Log.d(TAG, "Service created")
         createNotificationChannel()
+        // 初始化 ScreenCapture
+        screenCapture = ScreenCapture(applicationContext) { surface ->
+            // Surface 就绪回调，可以在此处理
+            Log.d(TAG, "Surface ready: $surface")
+        }
     }
-
+    
+    
     override fun onBind(intent: Intent): IBinder {
         return binder
     }
@@ -103,6 +115,9 @@ class ScreenCaptureService : Service() {
             return
         }
 
+        // 设置给 ScreenCapture
+        screenCapture?.setMediaProjection(mediaProjection)
+
         Log.d(TAG, "MediaProjection initialized successfully")
     }
 
@@ -111,26 +126,7 @@ class ScreenCaptureService : Service() {
      */
     fun createVirtualDisplay(surface: Surface, width: Int, height: Int, dpi: Int): VirtualDisplay? {
         this.surface = surface
-
-        if (mediaProjection == null) {
-            Log.e(TAG, "MediaProjection is null")
-            return null
-        }
-
-        virtualDisplay?.release()
-        virtualDisplay = mediaProjection?.createVirtualDisplay(
-            "ScreenRecorder",
-            width,
-            height,
-            dpi,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            surface,
-            null,
-            null
-        )
-
-        Log.d(TAG, "VirtualDisplay created: ${width}x${height}")
-        return virtualDisplay
+        return screenCapture?.createVirtualDisplay(width, height, surface)
     }
 
     /**
@@ -146,6 +142,72 @@ class ScreenCaptureService : Service() {
         isRunning = false
     }
 
+    /**
+     * 开始录制
+     * @param ips 目标 IP 地址列表
+     * @param port RTP 端口
+     */
+    fun startRecording(ips: List<String>, port: Int) {
+        if (isRecording) {
+            Log.w(TAG, "Recording already started")
+            return
+        }
+        if (ips.isEmpty()) {
+            Log.e(TAG, "No destination IPs provided")
+            return
+        }
+
+        currentIps = ips
+        currentPort = port
+        isRecording = true
+
+        // 创建 VideoRecorder
+        videoRecorder = VideoRecorder(720, 1280,
+            createSurface = { surface ->
+                // 当 VideoRecorder 创建 Surface 时，创建 VirtualDisplay
+                screenCapture?.createVirtualDisplay(720, 1280, surface)
+            },
+            destroySurface = { surface ->
+                // Surface 销毁时的处理
+                surface.release()
+            }
+        )
+        videoRecorder?.startVideoEncoder(ips, port)
+
+        // 更新通知栏，显示正在录制状态
+        updateNotification(isRecording = true)
+
+        Log.d(TAG, "Recording started, targets: ${ips.size}, port: $port")
+    }
+
+    /**
+     * 停止录制
+     */
+    fun stopRecording() {
+        if (!isRecording) {
+            Log.w(TAG, "Recording not started")
+            return
+        }
+
+        videoRecorder?.stopVideoEncoder()
+        videoRecorder = null
+        currentIps = emptyList()
+        currentPort = 0
+        isRecording = false
+
+        // 更新通知栏，提示录制已停止
+        updateNotification(isRecording = false)
+
+        Log.d(TAG, "Recording stopped")
+    }
+    
+    /**
+     * 检查是否正在录制
+     */
+    fun isRecording(): Boolean {
+        return isRecording
+    }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val name = "屏幕录制服务"
@@ -159,7 +221,7 @@ class ScreenCaptureService : Service() {
         }
     }
 
-    private fun createNotification(): Notification {
+    private fun createNotification(isRecording: Boolean = false): Notification {
         val pendingIntent = PendingIntent.getActivity(
             this,
             0,
@@ -167,13 +229,25 @@ class ScreenCaptureService : Service() {
             PendingIntent.FLAG_IMMUTABLE
         )
 
+        val title = if (isRecording) "正在录制屏幕" else "录制已停止"
+        val text = if (isRecording) "屏幕录制服务正在运行" else "点击打开应用"
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("正在录制屏幕")
-            .setContentText("屏幕录制服务正在运行")
+            .setContentTitle(title)
+            .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .build()
+    }
+
+    /**
+     * 更新通知栏
+     */
+    private fun updateNotification(isRecording: Boolean) {
+        val notification = createNotification(isRecording)
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
     override fun onDestroy() {

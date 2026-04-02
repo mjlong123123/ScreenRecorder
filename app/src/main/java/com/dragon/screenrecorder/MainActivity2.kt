@@ -75,11 +75,10 @@ class MainActivity2 : ComponentActivity() {
     ) { result ->
         if (result.resultCode == RESULT_OK && result.data != null) {
             if (!RecordingManager.handlePermissionResult(result.resultCode, result.data)) {
-                RecordingManager.stopRecording()
                 ToastUtils.showError(this, "屏幕录制启动失败")
             }
+            // handlePermissionResult 中已经处理了绑定和录制启动
         } else {
-            RecordingManager.stopRecording()
             ToastUtils.showError(this, "屏幕录制权限被拒绝")
         }
     }
@@ -102,8 +101,8 @@ class MainActivity2 : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        // 不停止录制,让录制在后台继续运行
-        // RecordingManager 不随 Activity 销毁而销毁
+        // 尝试停止服务：如果正在录制，只解绑；如果不录制，停止服务
+        RecordingManager.tryStopService()
     }
 
     /**
@@ -138,14 +137,14 @@ class MainActivity2 : ComponentActivity() {
      * 初始化录制管理器
      */
     private fun initializeRecordingManager() {
-        RecordingManager.initialize(this, screenCaptureLauncher, viewModel)
+        RecordingManager.initialize(this, screenCaptureLauncher)
     }
 
     /**
      * 处理录制按钮点击
      */
     private fun handleRecordClick() {
-        if (RecordingManager.isStarted) {
+        if (RecordingManager.isRecording.value) {
             RecordingManager.stopRecording()
             ToastUtils.showSuccess(this, "已停止录制")
         } else {
@@ -197,7 +196,7 @@ a=framerate:30"""
     private fun MainScreen() {
         VideoRecorderTheme {
             val context = LocalContext.current
-            val isRecording by viewModel.isRecording.collectAsState()
+            val isRecording by RecordingManager.isRecording.collectAsState()
             val deviceIps by viewModel.deviceIps.collectAsState()
             val showDeviceMenu by viewModel.showDeviceMenu.collectAsState()
             val showIpDialog by viewModel.showIpDialog.collectAsState()
@@ -210,14 +209,14 @@ a=framerate:30"""
                 isRecording = isRecording,
                 deviceIps = deviceIps,
                 rtpPort = rtpPort,
-                onSettingsClick = { viewModel.toggleDeviceMenu(true) },
+                onSettingsClick = { viewModel.toggleDeviceMenu(true, RecordingManager.isRecording.value) },
                 onRecordClick = { handleRecordClick() },
                 showDeviceMenu = showDeviceMenu,
                 showIpDialog = showIpDialog,
                 showPortDialog = showPortDialog,
                 showSdpDialog = showSdpDialog,
                 showAboutDialog = showAboutDialog,
-                onDismissDeviceMenu = { viewModel.toggleDeviceMenu(false) },
+                onDismissDeviceMenu = { viewModel.toggleDeviceMenu(false, RecordingManager.isRecording.value) },
                 onDismissIpDialog = { viewModel.showIpDialog(false) },
                 onConfirmIpDialog = { ip ->
                     viewModel.addDevice(ip, this@MainActivity2)
@@ -241,13 +240,13 @@ a=framerate:30"""
                 onGenerateSdp = { viewModel.showSdpDialog(true) },
                 onDeviceClick = { ip ->
                     viewModel.selectDevice(ip, this@MainActivity2)
-                    viewModel.toggleDeviceMenu(false)
+                    viewModel.toggleDeviceMenu(false, RecordingManager.isRecording.value)
                 },
                 onDeleteDevice = { ip ->
                     viewModel.removeDevice(ip, this@MainActivity2)
                 },
                 onAboutClick = {
-                    viewModel.toggleDeviceMenu(false)
+                    viewModel.toggleDeviceMenu(false, RecordingManager.isRecording.value)
                     viewModel.showAboutDialog(true)
                 }
             )
@@ -547,12 +546,13 @@ private fun ConnectionStatusIndicator(
 private fun RippleFeedbackButton(
     onClick: () -> Unit,
     enabled: Boolean = true,
+    modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
     var isPressed by remember { mutableStateOf(false) }
     
     Box(
-        modifier = Modifier
+        modifier = modifier
             .pointerInput(Unit) {
                 detectTapGestures(
                     onPress = { offset ->
@@ -570,6 +570,7 @@ private fun RippleFeedbackButton(
                 scaleY = if (isPressed && enabled) 0.95f else 1f
             }
             .animateContentSize()
+            .padding(70.dp) // 为录制按钮的波纹动画预留足够空间（波纹最大约148dp，按钮80dp，需要每侧约70dp）
     ) {
         content()
         
@@ -822,7 +823,8 @@ private fun RecordButtonSection(
 ) {
     Column(
         horizontalAlignment = CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.padding(horizontal = 40.dp, vertical = 24.dp)
     ) {
         // 连接状态指示器
         ConnectionStatusIndicator(

@@ -20,13 +20,9 @@ class MainViewModel : ViewModel() {
     private val _ipAddress = MutableStateFlow("")
     val ipAddress: StateFlow<String> = _ipAddress.asStateFlow()
     
-    private val _isRecording = MutableStateFlow(false)
-    val isRecording: StateFlow<Boolean> = _isRecording.asStateFlow()
-    
     private val _deviceIps = MutableStateFlow(emptyList<String>())
     val deviceIps: StateFlow<List<String>> = _deviceIps.asStateFlow()
     
-    // 菜单状态
     private val _showDeviceMenu = MutableStateFlow(false)
     val showDeviceMenu: StateFlow<Boolean> = _showDeviceMenu.asStateFlow()
     
@@ -71,17 +67,9 @@ class MainViewModel : ViewModel() {
         _ipAddress.value = ip
     }
     
-    fun setRecording(recording: Boolean) {
-        _isRecording.value = recording
-        // 录制时隐藏菜单
-        if (recording) {
-            _showDeviceMenu.value = false
-        }
-    }
-    
-    fun toggleDeviceMenu(show: Boolean) {
+    fun toggleDeviceMenu(show: Boolean, isRecording: Boolean = false) {
         // 录制时不允许显示菜单
-        if (_isRecording.value && show) {
+        if (isRecording && show) {
             return
         }
         _showDeviceMenu.value = show
