@@ -11,7 +11,7 @@ class CombineSurfaceTexture(
     rotate: Float,
     mirrorType: MirrorType,
     private val surfaceCallback: (Surface) -> Unit = {},
-    private val notify: () -> Unit = {}
+    private val notify: () -> Boolean = { true}
 ) :
     BasicTexture(width, height, rotate, mirrorType) {
     private lateinit var surfaceTexture: SurfaceTexture
@@ -25,7 +25,7 @@ class CombineSurfaceTexture(
         textureId = OpenGlUtils.createTexture()
         surfaceTexture = SurfaceTexture(textureId)
         surfaceTexture.setDefaultBufferSize(width, height)
-        surfaceTexture.setOnFrameAvailableListener { notify.invoke() }
+        surfaceTexture.setOnFrameAvailableListener { if(!notify.invoke()){update()} }
         surface = Surface(surfaceTexture)
         surfaceCallback.invoke(surface)
     }

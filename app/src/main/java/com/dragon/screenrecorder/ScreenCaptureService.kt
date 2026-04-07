@@ -19,6 +19,13 @@ import android.os.IBinder
 import android.util.Log
 import android.view.Surface
 import androidx.core.app.NotificationCompat
+import com.dragon.renderlib.background.RenderScope
+import com.dragon.renderlib.camera.CameraHolder
+import com.dragon.renderlib.egl.EGLCore
+import com.dragon.renderlib.extension.MirrorType
+import com.dragon.renderlib.node.NodesRender
+import com.dragon.renderlib.node.OesTextureNode
+import com.dragon.renderlib.texture.CombineSurfaceTexture
 
 /**
  * 屏幕录制前台服务
@@ -52,6 +59,12 @@ class ScreenCaptureService : Service() {
     private var currentPort: Int = 0
     private var isRecording: Boolean = false
 
+    private var lastUpdateTime: Long = 0
+    private var nodesRender: NodesRender? = null
+    private var eglRender: EGLRender? = null
+    private var renderScope: RenderScope? = null
+    private var eglSurfaceHolder: EGLCore.EGLSurfaceHolder? = null
+
     inner class LocalBinder : Binder() {
         fun getService(): ScreenCaptureService = this@ScreenCaptureService
     }
@@ -66,8 +79,8 @@ class ScreenCaptureService : Service() {
             Log.d(TAG, "Surface ready: $surface")
         }
     }
-    
-    
+
+
     override fun onBind(intent: Intent): IBinder {
         return binder
     }
@@ -76,7 +89,11 @@ class ScreenCaptureService : Service() {
         // 立即启动前台服务，避免 ANR
         val notification = createNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            )
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
@@ -93,6 +110,7 @@ class ScreenCaptureService : Service() {
                     stopSelf()
                 }
             }
+
             ACTION_STOP -> {
                 stopCapture()
                 isRunning = false
@@ -106,7 +124,8 @@ class ScreenCaptureService : Service() {
         Log.d(TAG, "Initializing MediaProjection")
 
         // 创建 MediaProjection
-        val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        val projectionManager =
+            getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         mediaProjection = projectionManager.getMediaProjection(resultCode, data)
 
         if (mediaProjection == null) {
@@ -176,23 +195,67 @@ class ScreenCaptureService : Service() {
         val screenAspectRatio = screenWidth.toFloat() / screenHeight.toFloat()
         val targetAspectRatio = targetWidth.toFloat() / targetHeight.toFloat()
 
-        Log.d(TAG, "Screen resolution: ${screenWidth}x${screenHeight}, aspect ratio: $screenAspectRatio")
-        Log.d(TAG, "Target resolution: ${targetWidth}x${targetHeight}, aspect ratio: $targetAspectRatio")
+        Log.d(
+            TAG,
+            "Screen resolution: ${screenWidth}x${screenHeight}, aspect ratio: $screenAspectRatio"
+        )
+        Log.d(
+            TAG,
+            "Target resolution: ${targetWidth}x${targetHeight}, aspect ratio: $targetAspectRatio"
+        )
 
+        nodesRender = NodesRender(targetWidth, targetHeight)
+        eglRender = EGLRender(nodesRender!!)
+        renderScope = RenderScope(eglRender!!)
         // 创建 VideoRecorder（使用目标分辨率）
-        videoRecorder = VideoRecorder(targetWidth, targetHeight,
+        videoRecorder = VideoRecorder(
+            targetWidth, targetHeight,
             createSurface = { surface ->
-                // 当 VideoRecorder 创建 Surface 时，创建 VirtualDisplay（使用目标尺寸）
-                // 系统会自动处理缩放和居中，实现 fit center 效果
-                screenCapture?.createVirtualDisplay(targetWidth, targetHeight, surface)
+                renderScope?.addSurfaceHolder(
+                    EGLCore.EGLSurfaceHolder(
+                        surface,
+                        targetWidth.toFloat(),
+                        targetHeight.toFloat()
+                    )
+                )
+                renderScope?.requestRender()
             },
             destroySurface = { surface ->
+                renderScope?.removeSurfaceHolder(surface)
                 // Surface 销毁时的处理
                 surface.release()
             }
         )
         videoRecorder?.startVideoEncoder(ips, port)
-
+        nodesRender?.runInRender {
+            val texture = CombineSurfaceTexture(
+                targetWidth, targetHeight,
+                0.toFloat(),
+                MirrorType.VERTICAL,
+                { surface ->
+                    // 当 VideoRecorder 创建 Surface 时，创建 VirtualDisplay（使用目标尺寸）
+                    // 系统会自动处理缩放和居中，实现 fit center 效果
+                    screenCapture?.createVirtualDisplay(targetWidth, targetHeight, surface)
+                }) {
+                val current: Long = System.currentTimeMillis()
+                if(current - lastUpdateTime > 20){
+                    Log.d("dragon-frame"," update ${ current - lastUpdateTime} ")
+                    lastUpdateTime = current
+                    renderScope?.requestRender()
+                    return@CombineSurfaceTexture true
+                }else{
+                    return@CombineSurfaceTexture false
+                }
+            }
+            val previewNode = OesTextureNode(
+                0f,
+                0f,
+                nodesRender?.width?.toFloat() ?: 720.toFloat(),
+                nodesRender?.height?.toFloat() ?: 1280.toFloat(),
+                texture
+            )
+            addNode(0, previewNode)
+        }
         // 更新通知栏，显示正在录制状态
         updateNotification(isRecording = true)
 
@@ -213,13 +276,14 @@ class ScreenCaptureService : Service() {
         currentIps = emptyList()
         currentPort = 0
         isRecording = false
-
+        nodesRender?.release()
+        renderScope?.release()
         // 更新通知栏，提示录制已停止
         updateNotification(isRecording = false)
 
         Log.d(TAG, "Recording stopped")
     }
-    
+
     /**
      * 检查是否正在录制
      */
@@ -235,7 +299,8 @@ class ScreenCaptureService : Service() {
             val channel = NotificationChannel(CHANNEL_ID, name, importance).apply {
                 description = descriptionText
             }
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val notificationManager =
+                getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
         }
     }
@@ -265,7 +330,8 @@ class ScreenCaptureService : Service() {
      */
     private fun updateNotification(isRecording: Boolean) {
         val notification = createNotification(isRecording)
-        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val notificationManager =
+            getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
