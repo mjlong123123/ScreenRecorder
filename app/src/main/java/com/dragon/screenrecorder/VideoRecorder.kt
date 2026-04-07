@@ -77,7 +77,6 @@ class VideoRecorder(
                     info.flags.and(MediaCodec.BUFFER_FLAG_KEY_FRAME) == MediaCodec.BUFFER_FLAG_KEY_FRAME -> {
                         countIFrame++
                         if (countIFrame.rem(3) == 0) {
-                            log { "video ssspppssspppsss frame +++++++++++++" }
                             videoRtpWrapper?.sendData(ppsByteArray, ppsByteArraySize, videoPayloadType, true, 0)
                             videoRtpWrapper?.sendData(spsByteArray, spsByteArraySize, videoPayloadType, true, 0)
                         }

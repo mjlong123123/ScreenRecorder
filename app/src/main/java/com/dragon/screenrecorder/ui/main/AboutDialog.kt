@@ -96,7 +96,7 @@ fun AboutDialog(
 
                 // 应用名称
                 Text(
-                    text = "局播",
+                    text = "录屏播",
                     style = MaterialTheme.typography.titleLarge,
                     color = Color.White
                 )

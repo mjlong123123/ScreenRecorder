@@ -239,7 +239,6 @@ class ScreenCaptureService : Service() {
                 }) {
                 val current: Long = System.currentTimeMillis()
                 if(current - lastUpdateTime > 20){
-                    Log.d("dragon-frame"," update ${ current - lastUpdateTime} ")
                     lastUpdateTime = current
                     renderScope?.requestRender()
                     return@CombineSurfaceTexture true
