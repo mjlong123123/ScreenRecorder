@@ -44,6 +44,7 @@ class VideoRecorder(
 
     private val naluData = NaluData();
 
+    private var lastUpdateTime: Long = 0
 
     fun startVideoEncoder(ips: List<String>, port: Int = 40018) {
         if(isStarted){
@@ -70,6 +71,7 @@ class VideoRecorder(
 
             override fun onOutputBufferAvailable(codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo) {
                 val buffer = codec.getOutputBuffer(index) ?: return
+                val current = info.presentationTimeUs
                 when {
                     info.flags.and(MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == MediaCodec.BUFFER_FLAG_CODEC_CONFIG -> {
                         log { "video config frame +++++++++++++" }
@@ -80,6 +82,8 @@ class VideoRecorder(
                             videoRtpWrapper?.sendData(ppsByteArray, ppsByteArraySize, videoPayloadType, true, 0)
                             videoRtpWrapper?.sendData(spsByteArray, spsByteArraySize, videoPayloadType, true, 0)
                         }
+                        log { "dragon-frame I frame ${current - lastUpdateTime}" }
+                        lastUpdateTime = current
                         naluData.split2FU(buffer, info.offset, info.size) { b, o, s, m, increase ->
                             videoRtpWrapper?.sendData(b, s, videoPayloadType, m, if (increase) videoTimeIncrease else 0)
                         }
@@ -91,6 +95,8 @@ class VideoRecorder(
                         log { "video partial frame -------------" }
                     }
                     else -> {
+                        log { "dragon-frame normal frame ${current - lastUpdateTime}" }
+                        lastUpdateTime = current
                         naluData.split2FU(buffer, info.offset, info.size) { b, o, s, m, increase ->
                             videoRtpWrapper?.sendData(b, s, videoPayloadType, m, if (increase) videoTimeIncrease else 0)
                         }

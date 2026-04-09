@@ -136,6 +136,9 @@ object RecordingManager {
 
     /**
      * 开始录制
+     * @param ips 目标 IP 地址列表
+     * @param port RTP 端口
+     * @return true 表示录制已开始或即将开始，false 表示失败
      */
     fun startRecording(ips: List<String>, port: Int): Boolean {
         if (ips.isEmpty()) {
@@ -143,32 +146,86 @@ object RecordingManager {
             return false
         }
 
+        Log.d(TAG, "startRecording called, ips=${ips.size}, port=$port, isRunning=${ScreenCaptureService.isRunning}, serviceBound=$serviceBound")
+
+        // 始终先保存录制参数
+        pendingIps = ips
+        pendingPort = port
+
         // 检查服务是否仍在运行
         if (ScreenCaptureService.isRunning) {
+            Log.d(TAG, "Service is still running, rebinding...")
             // 服务正在运行但未绑定，需要重新绑定
             if (!serviceBound || captureService == null) {
                 rebindService()
             }
+            // 服务已绑定，尝试开始录制
+            if (serviceBound && captureService != null) {
+                val result = startRecordingInternal(ips, port)
+                if (result) {
+                    // 录制成功，清空 pending
+                    pendingIps = emptyList()
+                    pendingPort = 0
+                }
+                return result
+            }
         }
 
+        // 服务未运行或绑定失败，需要先请求权限
+        Log.d(TAG, "Service not ready, requesting permission...")
+        requestPermission()
+        return true
+    }
+
+    /**
+     * 通知权限已授权（由 Activity 调用）
+     * 在 handlePermissionResult 被调用后，服务已启动并绑定
+     * 此方法通知 RecordingManager 可以开始录制了
+     */
+    fun notifyPermissionGranted() {
+        Log.d(TAG, "notifyPermissionGranted called, pendingIps=${pendingIps.size}, isRunning=${ScreenCaptureService.isRunning}")
+        
+        if (pendingIps.isEmpty()) {
+            Log.w(TAG, "No pending recording parameters")
+            return
+        }
+
+        // 确保服务已绑定
+        if (!serviceBound || captureService == null) {
+            if (ScreenCaptureService.isRunning) {
+                rebindService()
+            } else {
+                Log.e(TAG, "Service is not running after permission granted")
+                return
+            }
+        }
+
+        // 如果服务已经绑定，立即开始录制
         if (serviceBound && captureService != null) {
-            return startRecordingInternal(ips, port)
-        } else {
-            // 服务尚未绑定，保存参数稍后处理
-            pendingIps = ips
-            pendingPort = port
-            // 需要先请求权限
-            requestPermission()
-            return true
+            val ips = pendingIps
+            val port = pendingPort
+            pendingIps = emptyList()
+            pendingPort = 0
+            startRecordingInternal(ips, port)
         }
     }
 
     private fun startRecordingInternal(ips: List<String>, port: Int): Boolean {
+        Log.d(TAG, "startRecordingInternal called, ips=${ips.size}, port=$port")
         return try {
-            captureService?.startRecording(ips, port)
-            _isRecording.value = true
-            Log.d(TAG, "Recording started, targets: ${ips.size}, port: $port")
-            true
+            val result = captureService?.startRecording(ips, port) ?: false
+            if (result) {
+                _isRecording.value = true
+                Log.d(TAG, "Recording started, targets: ${ips.size}, port: $port")
+            } else {
+                // MediaProjection 无效（已停止），需要重新请求权限
+                Log.w(TAG, "MediaProjection invalid (already stopped), need new permission")
+                // 保存参数并请求权限
+                pendingIps = ips
+                pendingPort = port
+                requestPermission()
+            }
+            result
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start recording", e)
             _isRecording.value = false

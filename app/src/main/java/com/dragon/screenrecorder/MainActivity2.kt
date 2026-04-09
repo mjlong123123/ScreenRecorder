@@ -1,6 +1,8 @@
 package com.dragon.screenrecorder
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -55,6 +57,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.ui.Alignment.Companion.Center
 import kotlin.math.cos
 import kotlin.math.sin
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -69,17 +72,42 @@ import com.dragon.screenrecorder.viewmodel.MainViewModel
 class MainActivity2 : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
 
+    // 标志：是否等待权限授权后自动开始录制
+    private var pendingRecordingAfterPermission = false
+
     // 屏幕录制权限启动器
     private val screenCaptureLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == RESULT_OK && result.data != null) {
-            if (!RecordingManager.handlePermissionResult(result.resultCode, result.data)) {
-                ToastUtils.showError(this, "屏幕录制启动失败")
+            // 处理权限结果并启动服务
+            RecordingManager.handlePermissionResult(result.resultCode, result.data)
+            // 如果需要授权后自动录制，通知 RecordingManager
+            if (pendingRecordingAfterPermission) {
+                // 延迟一点时间让服务完全启动
+                window.decorView.postDelayed({
+                    pendingRecordingAfterPermission = false
+                    RecordingManager.notifyPermissionGranted()
+                    // 检查是否录制已经开始
+                    if (RecordingManager.isRecording.value) {
+                        ToastUtils.showSuccess(this@MainActivity2, "开始录制")
+                    }
+                }, 300)
             }
-            // handlePermissionResult 中已经处理了绑定和录制启动
         } else {
             ToastUtils.showError(this, "屏幕录制权限被拒绝")
+            pendingRecordingAfterPermission = false
+        }
+    }
+
+    // 通知权限请求启动器（Android 13+）
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            Log.d("dragon", "Notification permission granted")
+        } else {
+            Log.w("dragon", "Notification permission denied")
         }
     }
 
@@ -96,6 +124,7 @@ class MainActivity2 : ComponentActivity() {
         setupWindow()
         loadSavedData()
         initializeRecordingManager()
+        requestNotificationPermission()
         setContent { MainScreen() }
     }
 
@@ -103,6 +132,18 @@ class MainActivity2 : ComponentActivity() {
         super.onDestroy()
         // 尝试停止服务：如果正在录制，只解绑；如果不录制，停止服务
         RecordingManager.tryStopService()
+    }
+
+    /**
+     * 请求通知权限（Android 13+）
+     */
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val permission = Manifest.permission.POST_NOTIFICATIONS
+            if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
+                notificationPermissionLauncher.launch(permission)
+            }
+        }
     }
 
     /**
@@ -163,11 +204,17 @@ class MainActivity2 : ComponentActivity() {
         }
 
         val rtpPort = viewModel.rtpPort.value
-        if (RecordingManager.startRecording(deviceIps, rtpPort)) {
+        
+        // 设置标志：需要权限授权后自动开始录制
+        pendingRecordingAfterPermission = true
+        
+        val result = RecordingManager.startRecording(deviceIps, rtpPort)
+        if (result) {
+            // 如果返回 true 且不需要权限请求，录制已经开始
+            pendingRecordingAfterPermission = false
             ToastUtils.showSuccess(this, "开始录制")
-        } else {
-            ToastUtils.showError(this, "启动录制失败")
         }
+        // 如果返回 true 但需要权限请求，会在权限授权成功后自动开始录制
     }
 
     /**
@@ -601,19 +648,18 @@ private fun RippleFeedbackButton(
             .pointerInput(Unit) {
                 detectTapGestures(
                     onPress = { offset ->
-                        if (enabled) {
-                            isPressed = true
-                            tryAwaitRelease()
-                            isPressed = false
-                        }
+                        isPressed = true
+                        tryAwaitRelease()
+                        isPressed = false
                     },
-                    onTap = { if (enabled) onClick() }
+                    onTap = { onClick() }
                 )
             }
             .graphicsLayer {
                 scaleX = if (isPressed && enabled) 0.95f else 1f
                 scaleY = if (isPressed && enabled) 0.95f else 1f
             }
+            .alpha(if (enabled) 1f else 0.5f)
             .animateContentSize()
             .padding(70.dp) // 为录制按钮的波纹动画预留足够空间（波纹最大约148dp，按钮80dp，需要每侧约70dp）
     ) {

@@ -58,8 +58,6 @@ class ScreenCaptureService : Service() {
     private var currentIps: List<String> = emptyList()
     private var currentPort: Int = 0
     private var isRecording: Boolean = false
-
-    private var lastUpdateTime: Long = 0
     private var nodesRender: NodesRender? = null
     private var eglRender: EGLRender? = null
     private var renderScope: RenderScope? = null
@@ -165,15 +163,31 @@ class ScreenCaptureService : Service() {
      * 开始录制
      * @param ips 目标 IP 地址列表
      * @param port RTP 端口
+     * @return 是否成功开始录制
      */
-    fun startRecording(ips: List<String>, port: Int) {
+    fun startRecording(ips: List<String>, port: Int): Boolean {
         if (isRecording) {
             Log.w(TAG, "Recording already started")
-            return
+            return false
         }
         if (ips.isEmpty()) {
             Log.e(TAG, "No destination IPs provided")
-            return
+            return false
+        }
+
+        // 检查 MediaProjection 是否有效
+        if (mediaProjection == null) {
+            Log.w(TAG, "MediaProjection is null, need to request permission")
+            // 需要请求权限，返回 false 让调用者处理权限请求
+            return false
+        }
+
+        // 如果 screenCapture 已被释放，重新创建
+        if (screenCapture == null) {
+            screenCapture = ScreenCapture(applicationContext) { surface ->
+                Log.d(TAG, "Surface ready: $surface")
+            }
+            screenCapture?.setMediaProjection(mediaProjection)
         }
 
         currentIps = ips
@@ -232,19 +246,11 @@ class ScreenCaptureService : Service() {
                 targetWidth, targetHeight,
                 0.toFloat(),
                 MirrorType.VERTICAL,
+                frameRate = 30,
                 { surface ->
-                    // 当 VideoRecorder 创建 Surface 时，创建 VirtualDisplay（使用目标尺寸）
-                    // 系统会自动处理缩放和居中，实现 fit center 效果
                     screenCapture?.createVirtualDisplay(targetWidth, targetHeight, surface)
                 }) {
-                val current: Long = System.currentTimeMillis()
-                if(current - lastUpdateTime > 20){
-                    lastUpdateTime = current
-                    renderScope?.requestRender()
-                    return@CombineSurfaceTexture true
-                }else{
-                    return@CombineSurfaceTexture false
-                }
+                renderScope?.requestRender()
             }
             val previewNode = OesTextureNode(
                 0f,
@@ -259,6 +265,7 @@ class ScreenCaptureService : Service() {
         updateNotification(isRecording = true)
 
         Log.d(TAG, "Recording started, targets: ${ips.size}, port: $port")
+        return true
     }
 
     /**
@@ -276,7 +283,24 @@ class ScreenCaptureService : Service() {
         currentPort = 0
         isRecording = false
         nodesRender?.release()
+        nodesRender = null
         renderScope?.release()
+        renderScope = null
+        
+        // 释放 screenCapture
+        screenCapture?.release()
+        screenCapture = null
+        
+        // 清理 EGL 相关资源
+        eglRender = null
+        eglSurfaceHolder = null
+        surface = null
+        virtualDisplay = null
+        
+        // 停止 MediaProjection（每个 MediaProjection 只能创建一次 VirtualDisplay）
+        mediaProjection?.stop()
+        mediaProjection = null
+        
         // 更新通知栏，提示录制已停止
         updateNotification(isRecording = false)
 
@@ -337,6 +361,13 @@ class ScreenCaptureService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         stopCapture()
+        // 停止前台服务并移除通知栏
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+        }
         isRunning = false
         Log.d(TAG, "Service destroyed")
     }
